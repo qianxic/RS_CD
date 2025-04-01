@@ -1,0 +1,16 @@
+# BiT变化检测项目依赖包
+torch>=1.7.0
+torchvision>=0.8.1
+numpy>=1.19.2
+matplotlib>=3.3.2
+Pillow>=8.0.1
+opencv-python>=4.4.0.46
+einops>=0.3.0
+tqdm>=4.51.0
+scikit-learn>=0.23.2
+timm>=0.4.12
+tensorboardX>=2.1
+tifffile>=2020.9.3
+fastapi>=0.68.0
+uvicorn>=0.15.0
+python-multipart>=0.0.5 
