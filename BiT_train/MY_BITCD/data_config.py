@@ -5,9 +5,7 @@ class DataConfig:
     def get_data_config(self, data_name):
         self.data_name = data_name
         if data_name == 'LEVIR':
-            self.root_dir = r'/root/autodl-tmp/LEVIR-CD'
-        elif data_name == 'EVIR-ER':
-            self.root_dir = r'/root/autodl-tmp/LEVIR-CD'
+            self.root_dir = r'D:\VS_WORKBASE\rsiis\变化检测模型\LEVIR-CD'
         elif data_name == 'quick_start':
             self.root_dir = './samples/'
         else:

@@ -1,0 +1,23 @@
+# 数据集文件夹
+LEVIR-CD/
+
+# 模型检查点
+checkpoints/
+*.pth
+*.pt
+
+# 生成的可视化结果
+vis/
+
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 日志文件
+*.log
+log.txt
+
+# 系统文件
+.DS_Store
+Thumbs.db 

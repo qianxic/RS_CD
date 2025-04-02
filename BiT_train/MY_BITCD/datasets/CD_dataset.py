@@ -5,6 +5,7 @@
 import os
 from PIL import Image
 import numpy as np
+import torch
 
 from torch.utils import data
 
@@ -117,50 +118,68 @@ class ImageDataset(data.Dataset):
 
 class CDDataset(ImageDataset):
 
-    def __init__(self, root_dir, img_size, split='train', is_train=True, label_transform=None,
-                 to_tensor=True):
-        super(CDDataset, self).__init__(root_dir, img_size=img_size, split=split, is_train=is_train,
-                                        to_tensor=to_tensor)
+    def __init__(self, root_dir, split='train', img_size=256, is_train=True,
+                 label_transform='norm'):
+        """
+        初始化变化检测数据集
+        
+        参数:
+            root_dir: 数据集根目录
+            split: 数据集划分，如'train', 'val', 'test'
+            img_size: 图像尺寸
+            is_train: 是否为训练模式
+            label_transform: 标签转换方式
+        """
+        # 记录参数
+        self.root_dir = root_dir
+        self.split = split
+        self.img_size = img_size
+        self.is_train = is_train
         self.label_transform = label_transform
+        self.to_tensor = True
         
-        # 打印数据集信息
-        print(f"[数据集信息] 模式: {split}, 图像总数: {self.A_size}")
+        # 构建数据目录路径 - 修正路径结构
+        self.img1_dir = os.path.join(root_dir, 'A', split)
+        self.img2_dir = os.path.join(root_dir, 'B', split)
+        self.lab_dir = os.path.join(root_dir, 'label', split)
         
-        # 检查前5个图像的标签文件是否存在
-        for i in range(min(5, self.A_size)):
-            name = self.img_name_list[i]
-            label_path = get_label_path(self.root_dir, name)
-            print(f"[数据集检查] 样本 {i}: {name}, 标签文件存在: {os.path.exists(label_path)}")
+        # 如果目录不存在，尝试使用不同的目录结构
+        if not os.path.exists(self.img1_dir):
+            # 尝试直接使用split子目录
+            self.img1_dir = os.path.join(root_dir, split, 'A')
+            self.img2_dir = os.path.join(root_dir, split, 'B')
+            self.lab_dir = os.path.join(root_dir, split, 'label')
             
-        # 采样几个图像检查标签分布
-        if self.A_size > 0:
-            sample_indices = np.linspace(0, self.A_size-1, min(5, self.A_size)).astype(int)
-            for i in sample_indices:
-                name = self.img_name_list[i]
-                label_path = get_label_path(self.root_dir, name)
-                if os.path.exists(label_path):
-                    try:
-                        label_img = Image.open(label_path)
-                        if label_img.mode != 'L':
-                            label_img = label_img.convert('L')
-                        label = np.array(label_img.resize((256, 256), Image.NEAREST), dtype=np.uint8)
-                        if self.label_transform == 'norm':
-                            label = label // 255
-                        change_ratio = np.sum(label == 1) / label.size
-                        print(f"[数据集检查] 样本 {i} ({name}) 变化区域占比: {change_ratio:.6f}, 标签唯一值: {np.unique(label)}")
-                    except Exception as e:
-                        print(f"[数据集检查] 样本 {i} ({name}) 标签读取错误: {str(e)}")
+        # 获取图像文件名列表
+        self.img_name_list = self.get_ids(self.img1_dir)
+        
+        # 确保有图像
+        if len(self.img_name_list) == 0:
+            raise RuntimeError(f"找不到图像! 检查路径: {self.img1_dir}")
+            
+        # 记录数据集大小
+        self.A_size = len(self.img_name_list)
+       
+        # 不再使用增强，仅创建基本的转换对象
+        self.augm = CDDataAugmentation(
+            img_size=self.img_size,
+            with_random_hflip=False,
+            with_random_vflip=False,
+            with_scale_random_crop=False,
+            with_random_blur=False,
+        )
 
     def __getitem__(self, index):
         name = self.img_name_list[index]
-        A_path = get_img_path(self.root_dir, self.img_name_list[index % self.A_size])
-        B_path = get_img_post_path(self.root_dir, self.img_name_list[index % self.A_size])
         
-        # 读取并调整图像尺寸为256x256
-        img_A = np.asarray(Image.open(A_path).convert('RGB').resize((256, 256), Image.BILINEAR))
-        img_B = np.asarray(Image.open(B_path).convert('RGB').resize((256, 256), Image.BILINEAR))
+        # 根据目录结构构建路径
+        A_path = os.path.join(self.img1_dir, name)
+        B_path = os.path.join(self.img2_dir, name)
+        L_path = os.path.join(self.lab_dir, name)
         
-        L_path = get_label_path(self.root_dir, self.img_name_list[index % self.A_size])
+        # 读取并调整图像尺寸为self.img_size
+        img_A = np.asarray(Image.open(A_path).convert('RGB').resize((self.img_size, self.img_size), Image.BILINEAR))
+        img_B = np.asarray(Image.open(B_path).convert('RGB').resize((self.img_size, self.img_size), Image.BILINEAR))
 
         # 简化标签处理：直接转为单通道二值图像
         try:
@@ -169,34 +188,45 @@ class CDDataset(ImageDataset):
             if label_img.mode != 'L':
                 label_img = label_img.convert('L')
                 
-            # 调整标签尺寸为256x256，使用NEAREST方法保持二值特性
-            label_img = label_img.resize((256, 256), Image.NEAREST)
+            # 调整标签尺寸，使用NEAREST方法保持二值特性
+            label_img = label_img.resize((self.img_size, self.img_size), Image.NEAREST)
             
             # 转为numpy数组，确保是二维的
             label = np.array(label_img, dtype=np.uint8)
             
-            # 打印标签原始值统计
-            if index % 100 == 0:  # 只打印部分数据
-                unique_vals = np.unique(label)
-                print(f"标签加载 [{name}] 原始唯一值: {unique_vals}, 形状: {label.shape}")
-            
             # 二分类标签处理（如果需要）
             if self.label_transform == 'norm':
-                label = label // 255
-                
-                # 打印归一化后的标签统计
-                if index % 100 == 0:
-                    norm_unique = np.unique(label)
-                    change_ratio = np.sum(label == 1) / label.size
-                    print(f"标签归一化后 [{name}] 唯一值: {norm_unique}, 变化比例: {change_ratio:.6f}")
+                # 将所有非零值归一化为1
+                label = np.where(label > 0, 1, 0).astype(np.uint8)
+            else:
+                # 无论如何都确保标签只有0和1
+                label = np.where(label > 0, 1, 0).astype(np.uint8)
                 
         except Exception as e:
             print(f"标签处理错误 {L_path}: {e}")
             # 创建空白标签
-            label = np.zeros((256, 256), dtype=np.uint8)
+            label = np.zeros((self.img_size, self.img_size), dtype=np.uint8)
 
         # 转换为张量
         [img, img_B], [label] = self.augm.transform([img_A, img_B], [label], to_tensor=self.to_tensor)
         
+        # 最后验证标签值
+        if self.to_tensor and torch.max(label) > 1:
+            print(f"警告：标签中包含大于1的值 [{name}]，最大值: {torch.max(label).item()}")
+            # 修复标签值
+            label = torch.clamp(label, 0, 1)
+            
         return {'name': name, 'A': img, 'B': img_B, 'L': label}
+
+    def get_ids(self, dir_path):
+        """
+        获取目录中的文件名列表
+        
+        参数:
+            dir_path: 目录路径
+            
+        返回:
+            文件名列表
+        """
+        return [f for f in os.listdir(dir_path) if os.path.isfile(os.path.join(dir_path, f))]
 

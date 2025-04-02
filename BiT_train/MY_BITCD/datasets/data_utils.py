@@ -46,15 +46,21 @@ class CDDataAugmentation:
         self.with_random_blur = with_random_blur
     def transform(self, imgs, labels, to_tensor=True):
         """
-        :param imgs: [ndarray,]
-        :param labels: [ndarray,]
-        :return: [ndarray,],[ndarray,]
+        仅执行尺寸调整和张量转换，不再执行数据增强
+        
+        参数:
+            imgs: [ndarray,] - 输入图像列表
+            labels: [ndarray,] - 输入标签列表
+            to_tensor: 是否转换为张量
+            
+        返回:
+            imgs_tensor: 转换后的图像列表
+            labels_tensor: 转换后的标签列表
         """
-        # resize image and covert to tensor
+        # 转换为PIL图像
         imgs = [TF.to_pil_image(img) for img in imgs]
-        if self.img_size is None:
-            self.img_size = None
-
+        
+        # 调整图像尺寸
         if not self.img_size_dynamic:
             if imgs[0].size != (self.img_size, self.img_size):
                 imgs = [TF.resize(img, [self.img_size, self.img_size], interpolation=3)
@@ -62,152 +68,32 @@ class CDDataAugmentation:
         else:
             self.img_size = imgs[0].size[0]
 
+        # 处理标签
         labels = [TF.to_pil_image(img) for img in labels]
         if len(labels) != 0:
             if labels[0].size != (self.img_size, self.img_size):
                 labels = [TF.resize(img, [self.img_size, self.img_size], interpolation=0)
                         for img in labels]
-
-        random_base = 0.5
-        if self.with_random_hflip and random.random() > 0.5:
-            imgs = [TF.hflip(img) for img in imgs]
-            labels = [TF.hflip(img) for img in labels]
-
-        if self.with_random_vflip and random.random() > 0.5:
-            imgs = [TF.vflip(img) for img in imgs]
-            labels = [TF.vflip(img) for img in labels]
-
-        if self.with_random_rot and random.random() > random_base:
-            angles = [90, 180, 270]
-            index = random.randint(0, 2)
-            angle = angles[index]
-            imgs = [TF.rotate(img, angle) for img in imgs]
-            labels = [TF.rotate(img, angle) for img in labels]
-
-        # 增强的随机裁剪 - 智能变化区域裁剪
-        if self.with_random_crop and random.random() > 0 and len(labels) > 0:
-            # 将标签转换为numpy数组以便分析
-            label_array = np.array(labels[0])
-            
-            # 检查标签是否有变化区域(值为255或1的像素)
-            if label_array.max() > 0:
-                # 查找变化区域的坐标
-                if label_array.max() > 1:  # 如果标签是255值
-                    change_y, change_x = np.where(label_array > 128)
-                else:  # 如果标签是二值(0/1)
-                    change_y, change_x = np.where(label_array > 0)
-                
-                # 只有找到变化区域时才进行智能裁剪
-                if len(change_y) > 0:
-                    # 计算变化区域的边界框
-                    min_y, max_y = change_y.min(), change_y.max()
-                    min_x, max_x = change_x.min(), change_x.max()
-                    
-                    # 设置裁剪区域大小 (确保至少包含80%的变化区域)
-                    crop_size = min(self.img_size, max(max_y - min_y, max_x - min_x) * 5 // 4)
-                    
-                    # 随机选择中心点 (确保中心点在变化区域内或附近)
-                    center_y = min_y + random.randint(0, max(1, max_y - min_y))
-                    center_x = min_x + random.randint(0, max(1, max_x - min_x))
-                    
-                    # 计算裁剪框 (确保在图像范围内)
-                    i = max(0, center_y - crop_size // 2)
-                    j = max(0, center_x - crop_size // 2)
-                    
-                    # 调整裁剪框以确保不超出图像边界
-                    if i + crop_size > label_array.shape[0]:
-                        i = label_array.shape[0] - crop_size
-                    if j + crop_size > label_array.shape[1]:
-                        j = label_array.shape[1] - crop_size
-                        
-                    # 确保i和j为非负数
-                    i, j = max(0, i), max(0, j)
-                    
-                    # 应用裁剪
-                    imgs = [TF.resized_crop(img, i, j, crop_size, crop_size,
-                                        size=(self.img_size, self.img_size),
-                                        interpolation=Image.BICUBIC)
-                        for img in imgs]
-
-                    labels = [TF.resized_crop(img, i, j, crop_size, crop_size,
-                                          size=(self.img_size, self.img_size),
-                                          interpolation=Image.NEAREST)
-                          for img in labels]
-                else:
-                    # 当没有找到变化区域时，退回到普通随机裁剪
-                    i, j, h, w = transforms.RandomResizedCrop(size=self.img_size). \
-                        get_params(img=imgs[0], scale=(0.8, 1.0), ratio=(0.8, 1.2))
-                        
-                    imgs = [TF.resized_crop(img, i, j, h, w,
-                                    size=(self.img_size, self.img_size),
-                                    interpolation=Image.BICUBIC)
-                        for img in imgs]
-
-                    labels = [TF.resized_crop(img, i, j, h, w,
-                                      size=(self.img_size, self.img_size),
-                                      interpolation=Image.NEAREST)
-                          for img in labels]
-            else:
-                # 当标签全为0时，退回到普通随机裁剪
-                i, j, h, w = transforms.RandomResizedCrop(size=self.img_size). \
-                    get_params(img=imgs[0], scale=(0.8, 1.0), ratio=(0.8, 1.2))
-                    
-                imgs = [TF.resized_crop(img, i, j, h, w,
-                                size=(self.img_size, self.img_size),
-                                interpolation=Image.BICUBIC)
-                    for img in imgs]
-
-                labels = [TF.resized_crop(img, i, j, h, w,
-                                  size=(self.img_size, self.img_size),
-                                  interpolation=Image.NEAREST)
-                      for img in labels]
-
-        if self.with_scale_random_crop:
-            # rescale
-            scale_range = [1, 1.2]
-            target_scale = scale_range[0] + random.random() * (scale_range[1] - scale_range[0])
-
-            imgs = [pil_rescale(img, target_scale, order=3) for img in imgs]
-            labels = [pil_rescale(img, target_scale, order=0) for img in labels]
-            # crop
-            imgsize = imgs[0].size  # h, w
-            box = get_random_crop_box(imgsize=imgsize, cropsize=self.img_size)
-            imgs = [pil_crop(img, box, cropsize=self.img_size, default_value=0)
-                    for img in imgs]
-            labels = [pil_crop(img, box, cropsize=self.img_size, default_value=255)
-                    for img in labels]
-
-        if self.with_random_blur and random.random() > 0:
-            radius = random.random()
-            imgs = [img.filter(ImageFilter.GaussianBlur(radius=radius))
-                    for img in imgs]
-
+        
+        # 转换为张量
         if to_tensor:
-            # to tensor
+            # 图像转换
             imgs = [TF.to_tensor(img) for img in imgs]
+            imgs = [TF.normalize(img, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+                    for img in imgs]
             
-            # 简化标签处理：确保是单通道标签
-            for i in range(len(labels)):
-                if isinstance(labels[i], np.ndarray):
-                    # 如果标签是numpy数组，确保是2D的
-                    if labels[i].ndim > 2:
-                        # 静默处理，不再输出警告
-                        labels[i] = labels[i][:, :, 0] if labels[i].ndim == 3 else labels[i]
-
-            # 转为张量，添加通道维度（确保是[1,H,W]形式）
+            # 标签转换
             processed_labels = []
-            for img in labels:
-                # 转换为numpy数组（如果不是）并确保是uint8类型
-                img_array = np.array(img, np.uint8)
-                # 添加通道维度，确保形状是[1,H,W]
-                label_tensor = torch.from_numpy(img_array).unsqueeze(dim=0)
+            for label in labels:
+                # 确保标签是二值的
+                label_np = np.array(label)
+                label_np = (label_np > 0).astype(np.uint8)
+                # 转换为张量，单通道
+                label_tensor = torch.from_numpy(label_np).unsqueeze(0).long()
                 processed_labels.append(label_tensor)
             
             labels = processed_labels
-
-            imgs = [TF.normalize(img, mean=[0.5, 0.5, 0.5],std=[0.5, 0.5, 0.5])
-                    for img in imgs]
-
+            
         return imgs, labels
 
 

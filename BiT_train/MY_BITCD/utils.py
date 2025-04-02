@@ -30,7 +30,7 @@ def get_loader(data_name, img_size=256, batch_size=8, split='test',
 
 
 def get_loaders(args):
-
+    """获取训练和验证数据加载器"""
     data_name = args.data_name
     dataConfig = data_config.DataConfig().get_data_config(data_name)
     root_dir = dataConfig.root_dir
@@ -39,17 +39,11 @@ def get_loaders(args):
     split_val = 'val'
     if hasattr(args, 'split_val'):
         split_val = args.split_val
-        
-    print(f"\n[数据配置] 数据集: {data_name}, 根目录: {root_dir}")
-    print(f"[数据配置] 训练集分割: {split}, 验证集分割: {split_val}")
-    print(f"[数据配置] 标签转换: {label_transform}")
     
     if args.dataset == 'CDDataset':
-        print("[数据加载] 创建训练集...")
         training_set = CDDataset(root_dir=root_dir, split=split,
                                  img_size=args.img_size,is_train=True,
                                  label_transform=label_transform)
-        print("[数据加载] 创建验证集...")
         val_set = CDDataset(root_dir=root_dir, split=split_val,
                                  img_size=args.img_size,is_train=False,
                                  label_transform=label_transform)
