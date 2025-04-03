@@ -1,6 +1,6 @@
 # 数据集文件夹
 LEVIR-CD/
-
+LEVIR-CD_1024/
 # 模型检查点
 checkpoints/
 *.pth
